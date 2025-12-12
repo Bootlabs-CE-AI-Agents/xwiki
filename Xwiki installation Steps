@@ -1,0 +1,411 @@
+# XWiki Complete Installation Setps
+sudo wget https://maven.xwiki.org/xwiki-keyring.gpg -O /usr/share/keyrings/xwiki-keyring.gpg
+sudo wget "https://maven.xwiki.org/stable/xwiki-stable.list" -O /etc/apt/sources.list.d/xwiki-stable.list
+sudo apt-get update
+sudo apt install xwiki-tomcat10-pgsql -y # What it Contains = Tomcat 10 + XWiki + PostgreSQL configuration
+sudo apt-get install default-jdk gnupg2 -y
+java --version
+systemctl restart tomcat10
+sudo timedatectl set-timezone Asia/Kolkata
+
+
+vi /etc/tomcat10/server.xml
+#!/bin/bash
+# ------------------------------------------------------------------
+# XWiki PostgreSQL → S3 Automated Backup
+# Author : Naveen / BootlabsTech
+# ------------------------------------------------------------------
+
+# ====== CONFIG SECTION ======
+DB_NAME="xwiki"
+root@ip-172-31-37-248:~# cat /etc/tomcat10/server.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to You under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<!-- Note:  A "Server" is not itself a "Container", so you may not
+     define subcomponents such as "Valves" at this level.
+     Documentation at /docs/config/server.html
+ -->
+<Server port="-1" shutdown="SHUTDOWN">
+  <Listener className="org.apache.catalina.startup.VersionLoggerListener" />
+  <!-- Security listener. Documentation at /docs/config/listeners.html
+  <Listener className="org.apache.catalina.security.SecurityListener" />
+  -->
+  <!-- APR library loader. Documentation at /docs/apr.html -->
+  <Listener className="org.apache.catalina.core.AprLifecycleListener" SSLEngine="on" />
+  <!-- Prevent memory leaks due to use of particular java/javax APIs-->
+  <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener" />
+  <Listener className="org.apache.catalina.mbeans.GlobalResourcesLifecycleListener" />
+  <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener" />
+
+  <!-- Global JNDI resources
+       Documentation at /docs/jndi-resources-howto.html
+  -->
+  <GlobalNamingResources>
+    <!-- Editable user database that can also be used by
+         UserDatabaseRealm to authenticate users
+    -->
+    <Resource name="UserDatabase" auth="Container"
+              type="org.apache.catalina.UserDatabase"
+              description="User database that can be updated and saved"
+              factory="org.apache.catalina.users.MemoryUserDatabaseFactory"
+              pathname="conf/tomcat-users.xml" />
+  </GlobalNamingResources>
+
+  <!-- A "Service" is a collection of one or more "Connectors" that share
+       a single "Container" Note:  A "Service" is not itself a "Container",
+       so you may not define subcomponents such as "Valves" at this level.
+       Documentation at /docs/config/service.html
+   -->
+  <Service name="Catalina">
+
+    <!--The connectors can use a shared executor, you can define one or more named thread pools-->
+    <!--
+    <Executor name="tomcatThreadPool" namePrefix="catalina-exec-"
+        maxThreads="150" minSpareThreads="4"/>
+    -->
+
+
+    <!-- A "Connector" represents an endpoint by which requests are received
+         and responses are returned. Documentation at :
+         HTTP Connector: /docs/config/http.html
+         AJP  Connector: /docs/config/ajp.html
+         Define a non-SSL/TLS HTTP/1.1 Connector on port 8080
+    -->
+    <Connector port="8080" protocol="HTTP/1.1"
+               connectionTimeout="20000"
+               redirectPort="8443"
+               maxParameterCount="1000"
+               />
+    <Connector port="443"
+               protocol="org.apache.coyote.http11.Http11NioProtocol"
+               SSLEnabled="true"
+               maxThreads="150"
+               scheme="https"
+               secure="true"
+               clientAuth="false"
+               sslProtocol="TLS">
+      <SSLHostConfig>
+        <Certificate certificateKeystoreFile="/etc/tomcat10/ssl/xwiki.p12"
+                     certificateKeystorePassword="bootlabs123"
+                     certificateKeystoreType="PKCS12"
+                     type="RSA" />
+      </SSLHostConfig>
+    </Connector>
+       <!-- A "Connector" using the shared thread pool-->
+    <!--
+    <Connector executor="tomcatThreadPool"
+               port="8080" protocol="HTTP/1.1"
+               connectionTimeout="20000"
+               redirectPort="8443"
+               maxParameterCount="1000"
+               />
+    -->
+    <!-- Define an SSL/TLS HTTP/1.1 Connector on port 8443 with HTTP/2
+         This connector uses the NIO implementation. The default
+         SSLImplementation will depend on the presence of the APR/native
+         library and the useOpenSSL attribute of the AprLifecycleListener.
+         Either JSSE or OpenSSL style configuration may be used regardless of
+         the SSLImplementation selected. JSSE style configuration is used below.
+    -->
+    <!--
+    <Connector port="8443" protocol="org.apache.coyote.http11.Http11NioProtocol"
+               maxThreads="150" SSLEnabled="true"
+               maxParameterCount="1000"
+               >
+        <UpgradeProtocol className="org.apache.coyote.http2.Http2Protocol" />
+        <SSLHostConfig>
+            <Certificate certificateKeystoreFile="conf/localhost-rsa.jks"
+                         type="RSA" />
+        </SSLHostConfig>
+    </Connector>
+    -->
+
+    <!-- Define an AJP 1.3 Connector on port 8009 -->
+    <!--
+    <Connector protocol="AJP/1.3"
+               address="::1"
+               port="8009"
+               redirectPort="8443"
+               maxParameterCount="1000"
+               />
+    -->
+
+    <!-- An Engine represents the entry point (within Catalina) that processes
+         every request.  The Engine implementation for Tomcat stand alone
+         analyzes the HTTP headers included with the request, and passes them
+         on to the appropriate Host (virtual host).
+         Documentation at /docs/config/engine.html -->
+
+    <!-- You should set jvmRoute to support load-balancing via AJP ie :
+    <Engine name="Catalina" defaultHost="localhost" jvmRoute="jvm1">
+    -->
+    <Engine name="Catalina" defaultHost="localhost">
+
+      <!--For clustering, please take a look at documentation at:
+          /docs/cluster-howto.html  (simple how to)
+          /docs/config/cluster.html (reference documentation) -->
+      <!--
+      <Cluster className="org.apache.catalina.ha.tcp.SimpleTcpCluster"/>
+      -->
+
+      <!-- Use the LockOutRealm to prevent attempts to guess user passwords
+           via a brute-force attack -->
+      <Realm className="org.apache.catalina.realm.LockOutRealm">
+        <!-- This Realm uses the UserDatabase configured in the global JNDI
+             resources under the key "UserDatabase".  Any edits
+             that are performed against this UserDatabase are immediately
+             available for use by the Realm.  -->
+        <Realm className="org.apache.catalina.realm.UserDatabaseRealm"
+               resourceName="UserDatabase"/>
+      </Realm>
+
+      <Host name="localhost"  appBase="webapps"
+            unpackWARs="true" autoDeploy="true">
+
+        <!-- SingleSignOn valve, share authentication between web applications
+             Documentation at: /docs/config/valve.html -->
+        <!--
+        <Valve className="org.apache.catalina.authenticator.SingleSignOn" />
+        -->
+
+        <!-- Access log processes all example.
+             Documentation at: /docs/config/valve.html
+             Note: The pattern used is equivalent to using pattern="common" -->
+        <Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs"
+               prefix="localhost_access_log" suffix=".txt"
+               pattern="%h %l %u %t &quot;%r&quot; %s %b" />
+
+      </Host>
+    </Engine>
+  </Service>
+</Server>
+
+sudo setcap 'cap_net_bind_service=+ep' /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+cp xwiki.p12 /etc/tomcat10/ssl
+sudo chown tomcat:tomcat /etc/tomcat10/ssl/xwiki.p12
+sudo chmod 600 /etc/tomcat10/ssl/xwiki.p12
+sudo systemctl daemon-reexec
+sudo systemctl daemon-reload
+sudo systemctl restart tomcat10
+sudo systemctl status tomcat10
+journalctl -u tomcat10 -f
+sudo ss -tulnp | grep 443
+
+curl -vk https://localhost/xwiki
+http://43.204.254.249:8080/xwiki
+URL : https://msdocs.bootlabstech.com
+
+
+XWiki Admin URL      : https://msdocs.bootlabstech.com/xwiki/bin/loginsubmit/XWiki/XWikiLogin
+XWiki Admin username : JayakumarS
+XWiki Admin passwd   : Bootlabs@123
+
+XWiki psql DB.      : xwiki
+XWiki psql username : xwiki
+XWiki psql passwd   : bootlabs123
+
+
+cd /var/lib/tomcat10/webapps/ROOT/
+vi index.html
+<!DOCTYPE html>
+<html>  <head>
+    <meta http-equiv="refresh" content="0; url=/xwiki/">    <title>Redirecting...</title>
+  </head>
+  <body>
+    <p>If you are not redirected automatically, follow this <a href="/xwiki/">link to XWiki</a>.</p>
+  </body>
+</html>
+
+# Install the OpenID Connect Authenticator Extension
+OpenID Connect Authenticaton
+sudo systemctl restart tomcat10 ### once install need to restart
+
+vi /etc/xwiki/xwiki.cfg
+xwiki.authentication.authclass=org.xwiki.contrib.oidc.auth.OIDCAuthServiceImpl
+xwiki.dbuser=xwiki
+xwiki.dbpass=Bootlabs@123
+
+vi /etc/xwiki/xwiki.properties
+oidc.endpoint.authorization=https://accounts.google.com/o/oauth2/v2/auth?hd=bootlabstech.com
+oidc.endpoint.token=https://oauth2.googleapis.com/token
+oidc.endpoint.userinfo=https://openidconnect.googleapis.com/v1/userinfo
+oidc.endpoint.logout=https://accounts.google.com/Logout
+oidc.clientid=491470669551-anadcl26c1bkh8jcfv8uhcpu05vd6vqs.apps.googleusercontent.com
+oidc.secret=refer from github secrets
+oidc.user.nameFormater=${oidc.user.email}
+oidc.userinfoclaims=
+
+
+# Global Administration: Rights
+ Prevent unregistered users from viewing pages, regardless of the page rights
+ Prevent unregistered users from editing pages, regardless of the page rights
+ Require unregistered users to solve a CAPTCHA when posting a comment on a page
+
+
+# Check XWiki logs
+sudo systemctl status tomcat10
+sudo tail -n 50 /var/log/tomcat10/catalina.out
+tail -n 100 /var/log/tomcat10/catalina.out
+systemctl status postgresql
+systemctl restart tomcat10
+systemctl status tomcat10
+
+
+# Extension installed
+GitHub Commit Application
+Git API
+XWiki Contrib
+
+# Go directly to the GitHub Commit Application code
+https://msdocs.bootlabstech.com/xwiki/bin/view/Git/
+https://msdocs.bootlabstech.com/xwiki/bin/view/GitHubAppCommitApplicationCode/GitHubConfigSheet
+https://msdocs.bootlabstech.com/xwiki/bin/edit/GitHubAppCommitApplication/WebHome?template=GitHubAppCommitApplicationCode.GitHubConfigSheet
+
+
+Webapp location (exploded): /usr/share/xwiki
+Data directory: /var/lib/xwiki/data
+Configuration: /etc/xwiki
+Context XML for Tomcat: /etc/tomcat10/Catalina/localhost/xwiki.xml
+Configuration Files of xwiki :  /usr/lib/xwiki/WEB-INF
+Configuration Files : /etc/xwiki/hibernate.cfg.xml
+
+| Folder                            | What it stores                                    |
+| --------------------------------- | ------------------------------------------------- |
+| `/var/lib/xwiki/data/attachment/` | Files uploaded to wiki pages (images, PDFs, etc.) |
+| `/var/lib/xwiki/data/backup/`     | Automatic backup files (if enabled)               |
+| `/var/lib/xwiki/data/store/solr/` | Lucene/Solr search index                          |
+| `/var/lib/xwiki/data/cache/`      | Cached content                                    |
+| `/var/lib/xwiki/data/jobs/`       | Background job data                               |
+
+
+| Layer              | Path / Component                                                       | What It Contains                                           | Why Important                 | Backup? |
+| ------------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------- | ----------------------------- | ------- |
+| 🗄 PostgreSQL      | Internal DB (xwiki)                                                    | Pages, users, history, rights, metadata                    | 100% critical                 | ✅       |
+| 📁 XWiki Data      | `/var/lib/xwiki/data/`                                                 | Uploaded attachments, images, logos, document cache        | 100% critical                 | ✅       |
+| ⚙️ XWiki Config    | `/etc/xwiki/`                                                          | DB credentials, authentication (SSO/OIDC), custom settings | Required for restore          | ✅       |
+| 🔧 Tomcat Config   | `/etc/tomcat10/`, `/lib/systemd/system/tomcat10.service.d/`, SSL certs | HTTPS, reverse proxy setup, systemd overrides              | Needed for identical setup    | ✅       |
+| 🔐 SSL / Certs     | `/etc/tomcat10/ssl/` or `/root/certs/`                                 | Your `.p12`, `.pem` certs                                  | Needed for HTTPS              | ✅       |
+| ☁️ Backup scripts  | `/usr/local/bin/xwiki-backup.sh`, cron job                             | Automation logic                                           | Optional, but good to include | ✅       |
+| 🧱 System packages | Installed via `apt install xwiki-tomcat10-pgsql`                       | Easily reinstalled on restore                              | ❌ No need (reinstall)         |         |
+
+
+
+sudo vi /usr/local/bin/xwiki-db-backup.sh
+#!/bin/bash
+# ------------------------------------------------------------------
+# XWiki Full Backup → PostgreSQL + Config + Data + Tomcat + Certs → S3
+# Author : Naveen / BootlabsTech
+# Version: v4 - Clear S3 filenames
+# ------------------------------------------------------------------
+
+# ====== CONFIGURATION ======
+# PostgreSQL settings
+DB_NAME="xwiki"
+DB_USER="xwiki"
+DB_PASS="bootlabs123"
+PG_VERSION="16.11"  # PostgreSQL version tag for naming
+
+# AWS S3 Bucket
+S3_BUCKET="msdocs-wiki-backup-bucket"
+
+# Backup settings
+BACKUP_DIR="/var/backups/xwiki"
+LOG_FILE="/var/log/xwiki-full-backup.log"
+RETENTION_DAYS=3
+
+# Timestamp
+DATE=$(date +%Y-%m-%d-%H-%M)
+
+# Local file names
+DB_DUMP_FILE="$BACKUP_DIR/postgresql-${PG_VERSION}-db-dump-$DATE.sql.gz"
+FILES_ARCHIVE="$BACKUP_DIR/xwiki-files-$DATE.tar.gz"
+
+# S3 Paths
+S3_DB_PATH="s3://$S3_BUCKET/postgresql-$PG_VERSION/"
+S3_FILES_PATH="s3://$S3_BUCKET/xwiki-files/"
+# ============================
+
+set -e  # Stop execution on error
+
+mkdir -p "$BACKUP_DIR"
+
+echo "[$(date)] 🚀 Starting full XWiki backup..." >> "$LOG_FILE"
+
+# === Step 1: PostgreSQL Database Dump ===
+echo "[$(date)] 🗄 Creating PostgreSQL dump..." >> "$LOG_FILE"
+PGPASSWORD="$DB_PASS" pg_dump -h localhost -U "$DB_USER" "$DB_NAME" | gzip > "$DB_DUMP_FILE"
+
+if [ $? -eq 0 ]; then
+    echo "[$(date)] ✅ Database dump created: $DB_DUMP_FILE" >> "$LOG_FILE"
+else
+    echo "[$(date)] ❌ Database dump failed!" >> "$LOG_FILE"
+    exit 1
+fi
+
+# === Step 2: Archive Files, Configs, Tomcat & Certs ===
+echo "[$(date)] 📦 Archiving configs and data..." >> "$LOG_FILE"
+tar -czf "$FILES_ARCHIVE" \
+  /etc/xwiki \
+  /var/lib/xwiki/data \
+  /etc/tomcat10 \
+  /usr/local/bin/xwiki-full-backup.sh \
+  /etc/systemd/system/tomcat10.service.d 2>> "$LOG_FILE" || echo "[$(date)] ⚠️ Some optional paths missing, continuing..." >> "$LOG_FILE"
+
+if [ -f "$FILES_ARCHIVE" ]; then
+    echo "[$(date)] ✅ File archive created: $FILES_ARCHIVE" >> "$LOG_FILE"
+else
+    echo "[$(date)] ❌ Failed to create file archive!" >> "$LOG_FILE"
+    exit 1
+fi
+
+# === Step 3: Upload to S3 ===
+echo "[$(date)] ☁️ Uploading backups to S3..." >> "$LOG_FILE"
+
+aws s3 cp "$DB_DUMP_FILE" "${S3_DB_PATH}postgresql-${PG_VERSION}-db-dump-$DATE.sql.gz" --storage-class STANDARD_IA >> "$LOG_FILE" 2>&1
+aws s3 cp "$FILES_ARCHIVE" "${S3_FILES_PATH}xwiki-files-$DATE.tar.gz" --storage-class STANDARD_IA >> "$LOG_FILE" 2>&1
+
+if [ $? -eq 0 ]; then
+    echo "[$(date)] ✅ Upload to S3 completed." >> "$LOG_FILE"
+else
+    echo "[$(date)] ⚠️ Upload to S3 failed!" >> "$LOG_FILE"
+fi
+
+# === Step 4: Clean up old backups ===
+echo "[$(date)] 🧹 Removing local backups older than $RETENTION_DAYS days..." >> "$LOG_FILE"
+find "$BACKUP_DIR" -type f -mtime +$RETENTION_DAYS -name "*.gz" -delete
+
+echo "[$(date)] ✅ Local cleanup done." >> "$LOG_FILE"
+echo "[$(date)] 🎯 Full backup completed successfully!" >> "$LOG_FILE"
+echo "-------------------------------------------------------" >> "$LOG_FILE"
+
+# Test Before Scheduling
+sudo chmod +x /usr/local/bin/xwiki-full-backup.sh
+sudo /usr/local/bin/xwiki-full-backup.sh
+cat /var/log/xwiki-full-backup.log
+
+# ✅ Check results locally:
+ls -lh /var/backups/xwiki/
+
+
+# ✅ Check on S3:
+aws s3 ls s3://msdocs-wiki-backup-bucket/postgresql-16.11/
+aws s3 ls s3://msdocs-wiki-backup-bucket/xwiki-files/
+
+# 🕒 Cron Setup (6 AM Daily)
+sudo crontab -e
+0 6 * * * /usr/local/bin/xwiki-full-backup.sh >> /var/log/xwiki-full-backup.log 2>&1
